@@ -1,5 +1,7 @@
 import Conversation from '../models/Conversation.js';
 import User from '../models/User.js';
+import Message from '../models/Message.js';
+import ConversationRead from '../models/ConversationRead.js';
 
 // POST /api/conversations
 export const createConversation = async (req, res) => {
@@ -66,8 +68,26 @@ export const getConversations = async (req, res) => {
       .populate('participants', 'username email avatar status lastSeen')
       .sort({ updatedAt: -1 });
 
-    res.json(conversations);
+    // Fetch read markers for this user
+    const readMarkers = await ConversationRead.find({ user: req.user._id });
+    const readMarkerMap = new Map(readMarkers.map(rm => [rm.conversation.toString(), rm.lastReadAt]));
+
+    const conversationsWithUnread = await Promise.all(
+      conversations.map(async (conv) => {
+        const lastReadAt = readMarkerMap.get(conv._id.toString()) || new Date(0);
+        const unreadCount = await Message.countDocuments({
+          conversation: conv._id,
+          createdAt: { $gt: lastReadAt },
+          readBy: { $ne: req.user._id }
+        });
+        
+        return { ...conv.toObject(), unreadCount };
+      })
+    );
+
+    res.json(conversationsWithUnread);
   } catch (error) {
+    console.error('Fetch conversations error:', error);
     res.status(500).json({ message: 'Failed to fetch conversations' });
   }
 };
@@ -155,11 +175,6 @@ export const removeMember = async (req, res) => {
 
     const { uid } = req.params;
 
-    // Prevent removing the creator
-    if (conversation.createdBy.toString() === uid) {
-      return res.status(400).json({ message: 'Cannot remove the group creator' });
-    }
-
     // Only creator or self can remove
     const isCreator = conversation.createdBy.toString() === req.user._id.toString();
     const isSelf = uid === req.user._id.toString();
@@ -170,6 +185,15 @@ export const removeMember = async (req, res) => {
     conversation.participants = conversation.participants.filter(
       (p) => p.toString() !== uid
     );
+
+    // Transfer ownership if creator leaves
+    if (conversation.createdBy.toString() === uid) {
+      if (conversation.participants.length > 0) {
+        // Transfer to the first remaining participant
+        conversation.createdBy = conversation.participants[0];
+      }
+    }
+
     await conversation.save();
 
     const updated = await conversation.populate(
@@ -180,5 +204,56 @@ export const removeMember = async (req, res) => {
     res.json(updated);
   } catch (error) {
     res.status(500).json({ message: 'Failed to remove member' });
+  }
+};
+
+// POST /api/conversations/:id/read
+export const markAsRead = async (req, res) => {
+  try {
+    const { id: conversationId } = req.params;
+    const userId = req.user._id;
+
+    await ConversationRead.findOneAndUpdate(
+      { user: userId, conversation: conversationId },
+      { lastReadAt: new Date() },
+      { upsert: true, new: true }
+    );
+
+    await Message.updateMany(
+      { conversation: conversationId, readBy: { $ne: userId } },
+      { $addToSet: { readBy: userId } }
+    );
+
+    res.json({ message: 'Conversation marked as read' });
+  } catch (error) {
+    console.error('Mark as read error:', error);
+    res.status(500).json({ message: 'Failed to mark conversation as read' });
+  }
+};
+
+// POST /api/conversations/:id/mute
+export const toggleMute = async (req, res) => {
+  try {
+    const conversation = req.conversation;
+    const userId = req.user._id.toString();
+
+    const isMuted = conversation.mutedBy.includes(userId);
+    if (isMuted) {
+      conversation.mutedBy = conversation.mutedBy.filter(id => id.toString() !== userId);
+    } else {
+      conversation.mutedBy.push(userId);
+    }
+
+    await conversation.save();
+
+    const updated = await conversation.populate(
+      'participants',
+      'username email avatar status lastSeen'
+    );
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Toggle mute error:', error);
+    res.status(500).json({ message: 'Failed to toggle mute' });
   }
 };

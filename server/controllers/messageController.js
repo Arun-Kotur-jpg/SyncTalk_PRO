@@ -109,3 +109,164 @@ export const clearMention = async (req, res) => {
     res.status(500).json({ message: 'Failed to clear mention' });
   }
 };
+
+// PUT /api/messages/:id
+export const editMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { content } = req.body;
+    
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    if (message.sender.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'You can only edit your own messages' });
+    }
+
+    // 15-minute edit window
+    const fifteenMins = 15 * 60 * 1000;
+    if (Date.now() - new Date(message.createdAt).getTime() > fifteenMins) {
+      return res.status(403).json({ message: 'Messages can only be edited within 15 minutes' });
+    }
+
+    message.content = content;
+    message.edited = true;
+    await message.save();
+
+    const populated = await message.populate([
+      { path: 'sender', select: 'username avatar' },
+      { path: 'replyTo', select: 'content sender' },
+      { path: 'mentions', select: 'username' },
+    ]);
+
+    req.app.get('io').to(message.conversation.toString()).emit('message_edited', populated);
+
+    res.json(populated);
+  } catch (error) {
+    console.error('Edit message error:', error);
+    res.status(500).json({ message: 'Failed to edit message' });
+  }
+};
+
+// DELETE /api/messages/:id
+export const deleteMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const soft = req.query.soft === 'true';
+
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    if (message.sender.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'You can only delete your own messages' });
+    }
+
+    const conversationId = message.conversation.toString();
+
+    if (soft) {
+      message.content = 'This message was deleted';
+      message.type = 'system';
+      message.voiceUrl = null;
+      await message.save();
+      
+      const populated = await message.populate([
+        { path: 'sender', select: 'username avatar' },
+      ]);
+      req.app.get('io').to(conversationId).emit('message_edited', populated); // Update UI like an edit
+      return res.json(populated);
+    } else {
+      await Message.findByIdAndDelete(id);
+      req.app.get('io').to(conversationId).emit('message_deleted', { messageId: id, conversationId });
+      return res.json({ message: 'Message deleted' });
+    }
+  } catch (error) {
+    console.error('Delete message error:', error);
+    res.status(500).json({ message: 'Failed to delete message' });
+  }
+};
+
+// POST /api/messages/:id/react
+export const toggleReaction = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { emoji } = req.body;
+    const userId = req.user._id;
+
+    if (!emoji) {
+      return res.status(400).json({ message: 'Emoji is required' });
+    }
+
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    const reactionIndex = message.reactions.findIndex(r => r.emoji === emoji);
+
+    if (reactionIndex > -1) {
+      // Reaction exists, check if user has reacted
+      const userIndex = message.reactions[reactionIndex].users.indexOf(userId);
+      if (userIndex > -1) {
+        // Remove user from reaction
+        message.reactions[reactionIndex].users.splice(userIndex, 1);
+        // Remove reaction entirely if no users left
+        if (message.reactions[reactionIndex].users.length === 0) {
+          message.reactions.splice(reactionIndex, 1);
+        }
+      } else {
+        // Add user to reaction
+        message.reactions[reactionIndex].users.push(userId);
+      }
+    } else {
+      // New reaction
+      message.reactions.push({ emoji, users: [userId] });
+    }
+
+    await message.save();
+
+    const populated = await message.populate([
+      { path: 'sender', select: 'username avatar' },
+      { path: 'replyTo', select: 'content sender' },
+      { path: 'mentions', select: 'username' },
+    ]);
+
+    req.app.get('io').to(message.conversation.toString()).emit('message_edited', populated);
+
+    res.json(populated);
+  } catch (error) {
+    console.error('Toggle reaction error:', error);
+    res.status(500).json({ message: 'Failed to toggle reaction' });
+  }
+};
+
+// POST /api/messages/:id/pin
+export const togglePin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    message.isPinned = !message.isPinned;
+    await message.save();
+
+    const populated = await message.populate([
+      { path: 'sender', select: 'username avatar' },
+      { path: 'replyTo', select: 'content sender' },
+      { path: 'mentions', select: 'username' },
+    ]);
+
+    req.app.get('io').to(message.conversation.toString()).emit('message_edited', populated);
+
+    res.json(populated);
+  } catch (error) {
+    console.error('Toggle pin error:', error);
+    res.status(500).json({ message: 'Failed to toggle pin' });
+  }
+};

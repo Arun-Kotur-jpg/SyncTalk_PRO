@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
+import Changelog from './pages/Changelog';
 import NotFound from './pages/NotFound';
 import Loader from './components/common/Loader';
 
@@ -52,6 +53,7 @@ const AppRoutes = () => {
       <Route path="/" element={<PublicRoute><Landing /></PublicRoute>} />
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+      <Route path="/changelog" element={<PublicRoute><Changelog /></PublicRoute>} />
       
       {/* Protected Routes nested in Layout */}
       <Route

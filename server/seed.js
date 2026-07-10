@@ -6,6 +6,11 @@ import Conversation from './models/Conversation.js';
 import Message from './models/Message.js';
 
 const seed = async () => {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ Cannot run seed script in production environment!');
+    process.exit(1);
+  }
+
   await connectDB();
 
   // Clear existing data

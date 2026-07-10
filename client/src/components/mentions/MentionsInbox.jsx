@@ -128,7 +128,13 @@ const MentionsInbox = ({ onClose }) => {
                           </span>
                         </div>
                         <p className="text-sm text-dark-400 truncate group-hover:text-dark-300 transition-colors">
-                          {msg.content || (msg.type === 'voice' ? '🎤 Voice message' : 'Sent an attachment')}
+                          {msg.type === 'voice' ? '🎤 Voice message' : (
+                            msg.content ? (
+                              msg.content.split(/(@\w+)/g).map((part, i) => 
+                                part.startsWith('@') ? <span key={i} className="text-primary-400 font-medium">{part}</span> : <span key={i}>{part}</span>
+                              )
+                            ) : 'Sent an attachment'
+                          )}
                         </p>
                       </div>
                     </div>

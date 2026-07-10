@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { API_URL } from '../utils/constants';
+import { getAccessToken, setAccessToken } from '../context/AuthContext';
+import { getCsrfToken, fetchCsrfToken } from './csrf';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -7,12 +9,23 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor — attach access token
-api.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem('accessToken');
+// Request interceptor — attach access token and CSRF token where needed
+api.interceptors.request.use(async (config) => {
+  const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // Attach CSRF token for refresh and logout requests
+  const csrfPaths = ['/auth/refresh', '/auth/logout'];
+  if (csrfPaths.some((p) => config.url?.endsWith(p))) {
+    let csrf = getCsrfToken();
+    if (!csrf) {
+      csrf = await fetchCsrfToken();
+    }
+    config.headers['X-CSRF-Token'] = csrf;
+  }
+
   return config;
 });
 
@@ -29,16 +42,14 @@ api.interceptors.response.use(
     ) {
       originalRequest._retry = true;
       try {
-        const { data } = await axios.post(
-          `${API_URL}/auth/refresh`,
-          {},
-          { withCredentials: true }
-        );
-        sessionStorage.setItem('accessToken', data.accessToken);
+        // Ensure we have a fresh CSRF token
+        await fetchCsrfToken();
+        const { data } = await api.post('/auth/refresh');
+        setAccessToken(data.accessToken);
         originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
-        sessionStorage.removeItem('accessToken');
+        setAccessToken(null);
         window.location.href = '/login';
         return Promise.reject(refreshError);
       }

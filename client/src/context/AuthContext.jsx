@@ -1,36 +1,31 @@
-import { createContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { loginUser, registerUser, logoutUser, refreshToken } from '../api/auth';
 import { getMe } from '../api/users';
 
 export const AuthContext = createContext(null);
+
+// In-memory access token — never persisted to storage
+let _accessToken = null;
+
+export const getAccessToken = () => _accessToken;
+export const setAccessToken = (token) => { _accessToken = token; };
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Check if user is already logged in on mount
+  // On mount, attempt a silent refresh (cookie-based) to restore the session
   useEffect(() => {
     const initAuth = async () => {
-      const token = sessionStorage.getItem('accessToken');
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
       try {
-        const { data } = await getMe();
-        setUser(data);
-      } catch (err) {
-        // Try to refresh the token
-        try {
-          const { data } = await refreshToken();
-          sessionStorage.setItem('accessToken', data.accessToken);
-          const meRes = await getMe();
-          setUser(meRes.data);
-        } catch {
-          sessionStorage.removeItem('accessToken');
-        }
+        const { data } = await refreshToken();
+        setAccessToken(data.accessToken);
+        const meRes = await getMe();
+        setUser(meRes.data);
+      } catch {
+        // No valid session — stay logged out
+        setAccessToken(null);
       } finally {
         setLoading(false);
       }
@@ -43,7 +38,7 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const { data } = await loginUser({ email, password });
-      sessionStorage.setItem('accessToken', data.accessToken);
+      setAccessToken(data.accessToken);
       setUser(data.user);
       return data;
     } catch (err) {
@@ -57,7 +52,7 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const { data } = await registerUser({ username, email, password });
-      sessionStorage.setItem('accessToken', data.accessToken);
+      setAccessToken(data.accessToken);
       setUser(data.user);
       return data;
     } catch (err) {
@@ -73,7 +68,7 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // Continue logout even if API call fails
     } finally {
-      sessionStorage.removeItem('accessToken');
+      setAccessToken(null);
       setUser(null);
     }
   }, []);

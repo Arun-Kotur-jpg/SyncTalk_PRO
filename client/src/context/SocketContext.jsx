@@ -1,16 +1,20 @@
 import { createContext, useEffect, useState, useContext, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { SOCKET_URL } from '../utils/constants';
-import { AuthContext } from './AuthContext';
+import { AuthContext, getAccessToken, setAccessToken } from './AuthContext';
+import { fetchCsrfToken } from '../api/csrf';
 
 export const SocketContext = createContext(null);
 
 export const SocketProvider = ({ children }) => {
-  const { user } = useContext(AuthContext);
+  const { user, logout } = useContext(AuthContext);
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const socketRef = useRef(null);
+
+  // Ref for fetchConversations callback — set by ChatContext via refreshConversationsRef
+  const onReconnectRef = useRef(null);
 
   useEffect(() => {
     if (!user) {
@@ -23,16 +27,22 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    const token = sessionStorage.getItem('accessToken');
+    const token = getAccessToken();
     if (!token) return;
+
+    let hasAttemptedRefresh = false;
 
     const newSocket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket', 'polling'],
     });
 
+    // Re-sync conversations after a reconnect
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
+      if (onReconnectRef.current) {
+        onReconnectRef.current();
+      }
     });
 
     newSocket.on('online_users', (users) => {
@@ -51,8 +61,25 @@ export const SocketProvider = ({ children }) => {
       setNotifications((prev) => [data, ...prev].slice(0, 50));
     });
 
-    newSocket.on('connect_error', (err) => {
+    // Attempt one silent token refresh on connect_error before giving up
+    newSocket.on('connect_error', async (err) => {
       console.error('Socket connection error:', err.message);
+
+      if (!hasAttemptedRefresh) {
+        hasAttemptedRefresh = true;
+        try {
+          const { default: api } = await import('../api/axios');
+          await fetchCsrfToken();
+          const { data } = await api.post('/auth/refresh');
+          setAccessToken(data.accessToken);
+          // Update socket auth and retry
+          newSocket.auth = { token: data.accessToken };
+          newSocket.connect();
+        } catch {
+          // Refresh failed — log the user out
+          logout();
+        }
+      }
     });
 
     socketRef.current = newSocket;
@@ -61,7 +88,7 @@ export const SocketProvider = ({ children }) => {
     return () => {
       newSocket.disconnect();
     };
-  }, [user]);
+  }, [user, logout]);
 
   const joinRoom = useCallback(
     (conversationId) => {
@@ -117,6 +144,15 @@ export const SocketProvider = ({ children }) => {
     []
   );
 
+  const markConversationRead = useCallback(
+    (conversationId) => {
+      if (socketRef.current) {
+        socketRef.current.emit('mark_conversation_read', { conversationId });
+      }
+    },
+    []
+  );
+
   const clearNotification = useCallback((index) => {
     setNotifications((prev) => prev.filter((_, i) => i !== index));
   }, []);
@@ -142,9 +178,11 @@ export const SocketProvider = ({ children }) => {
         emitTyping,
         emitStopTyping,
         markRead,
+        markConversationRead,
         clearNotification,
         clearNotificationByMessageId,
         isOnline,
+        onReconnectRef,
       }}
     >
       {children}

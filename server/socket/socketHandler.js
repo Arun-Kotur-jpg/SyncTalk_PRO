@@ -2,9 +2,12 @@ import { verifyAccessToken } from '../utils/token.js';
 import User from '../models/User.js';
 import Message from '../models/Message.js';
 import Conversation from '../models/Conversation.js';
+import ConversationRead from '../models/ConversationRead.js';
 
 // Track online users: userId -> Set of socketIds
 const onlineUsers = new Map();
+// Track disconnect timeouts: userId -> timeoutId
+const disconnectTimeouts = new Map();
 
 const setupSocket = (io) => {
   // Auth middleware for socket connections
@@ -32,14 +35,25 @@ const setupSocket = (io) => {
     const userId = socket.user._id.toString();
     console.log(`User connected: ${socket.user.username} (${socket.id})`);
 
+    // Clear any pending disconnect timeout
+    if (disconnectTimeouts.has(userId)) {
+      clearTimeout(disconnectTimeouts.get(userId));
+      disconnectTimeouts.delete(userId);
+    } else {
+      // Only broadcast if they were truly offline
+      if (!onlineUsers.has(userId) || onlineUsers.get(userId).size === 0) {
+        socket.broadcast.emit('user_online', { userId, username: socket.user.username });
+      }
+    }
+
     // Track online status
     if (!onlineUsers.has(userId)) {
       onlineUsers.set(userId, new Set());
     }
     onlineUsers.get(userId).add(socket.id);
 
-    // Broadcast online status
-    socket.broadcast.emit('user_online', { userId, username: socket.user.username });
+    // Rate limiting state: 20 messages per 10 seconds
+    const messageRateLimit = { count: 0, firstMessageTime: Date.now() };
 
     // Send current online users list to newly connected user
     const onlineList = Array.from(onlineUsers.keys());
@@ -69,6 +83,18 @@ const setupSocket = (io) => {
     // --- Send Message ---
     socket.on('send_message', async (data) => {
       try {
+        // Rate limiting check
+        const now = Date.now();
+        if (now - messageRateLimit.firstMessageTime > 10000) {
+          messageRateLimit.count = 1;
+          messageRateLimit.firstMessageTime = now;
+        } else {
+          messageRateLimit.count++;
+          if (messageRateLimit.count > 20) {
+            return socket.emit('error', { message: 'Rate limit exceeded. Please slow down.' });
+          }
+        }
+
         const { conversationId, content, type = 'text', voiceUrl, replyTo, mentions } = data;
 
         // Verify membership
@@ -167,6 +193,25 @@ const setupSocket = (io) => {
       }
     });
 
+    // --- Mark Conversation Read ---
+    socket.on('mark_conversation_read', async ({ conversationId }) => {
+      try {
+        await ConversationRead.findOneAndUpdate(
+          { user: userId, conversation: conversationId },
+          { lastReadAt: new Date() },
+          { upsert: true, new: true }
+        );
+        // Also update old messages
+        await Message.updateMany(
+          { conversation: conversationId, readBy: { $ne: userId } },
+          { $addToSet: { readBy: userId } }
+        );
+        io.to(conversationId).emit('messages_read', { conversationId, userId });
+      } catch (error) {
+        console.error('Mark conversation read error:', error);
+      }
+    });
+
     // --- Summary Created Notification ---
     socket.on('summary_created', ({ conversationId, summary }) => {
       io.to(conversationId).emit('new_summary', { summary });
@@ -182,10 +227,15 @@ const setupSocket = (io) => {
         sockets.delete(socket.id);
         if (sockets.size === 0) {
           onlineUsers.delete(userId);
-          socket.broadcast.emit('user_offline', { userId });
-
-          // Update lastSeen
-          await User.findByIdAndUpdate(userId, { lastSeen: new Date() });
+          
+          // Delay offline broadcast by 5 seconds to handle quick reconnects
+          const timeoutId = setTimeout(async () => {
+            socket.broadcast.emit('user_offline', { userId });
+            await User.findByIdAndUpdate(userId, { lastSeen: new Date() });
+            disconnectTimeouts.delete(userId);
+          }, 5000);
+          
+          disconnectTimeouts.set(userId, timeoutId);
         }
       }
     });

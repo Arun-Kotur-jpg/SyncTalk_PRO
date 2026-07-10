@@ -6,6 +6,12 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
+import crypto from 'crypto';
+import compression from 'compression';
+import pinoHttp from 'pino-http';
+import * as Sentry from '@sentry/node';
+import logger from './utils/logger.js';
+import mongoose from 'mongoose';
 import { generalLimiter } from './middleware/rateLimiter.js';
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -13,6 +19,7 @@ import conversationRoutes from './routes/conversationRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import summaryRoutes from './routes/summaryRoutes.js';
 import voiceRoutes from './routes/voiceRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,9 +36,20 @@ app.use(
 app.use(generalLimiter);
 
 // Parsing
+app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req, res) => {
+      const id = req.headers['x-request-id'] || crypto.randomUUID();
+      res.setHeader('X-Request-Id', id);
+      return id;
+    },
+  })
+);
 
 // Static files for voice uploads — with correct audio headers
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
@@ -62,10 +80,32 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/summary', summaryRoutes);
 app.use('/api/voice', voiceRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  try {
+    const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+    const isHealthy = dbStatus === 'connected';
+    
+    res.status(isHealthy ? 200 : 503).json({
+      status: isHealthy ? 'ok' : 'error',
+      timestamp: new Date().toISOString(),
+      services: {
+        database: dbStatus
+      }
+    });
+  } catch (error) {
+    res.status(503).json({ status: 'error', timestamp: new Date().toISOString() });
+  }
+});
+
+// Version endpoint
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: process.env.npm_package_version || '1.0.0',
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
 // Serve client build in production if present
@@ -88,7 +128,8 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
+  logger.error({ err, req, res }, 'Unhandled error in Express');
+  Sentry.captureException(err);
   res.status(500).json({ message: 'Internal server error' });
 });
 

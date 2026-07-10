@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Mic, Smile, X } from 'lucide-react';
+import { Paperclip, Send, Mic, Smile, X, Loader2 } from 'lucide-react';
 import useChat from '../../hooks/useChat';
 import useSocket from '../../hooks/useSocket';
 import useAuth from '../../hooks/useAuth';
 import VoiceRecorder from '../voice/VoiceRecorder';
+import { uploadAttachment } from '../../api/messages';
 
 // Grouped emoji set — common ones a college student would actually use
 const EMOJI_DATA = {
@@ -78,8 +79,17 @@ const MessageInput = () => {
   const [text, setText] = useState('');
   const [showRecorder, setShowRecorder] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const typingTimeout = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Clear typing debounce on unmount to prevent stale stop_typing events
+  useEffect(() => {
+    return () => clearTimeout(typingTimeout.current);
+  }, []);
 
   const handleEmojiSelect = useCallback((emoji) => {
     setText((prev) => prev + emoji);
@@ -135,7 +145,73 @@ const MessageInput = () => {
     emitStopTyping(activeConversation._id);
   }, [text, activeConversation, sendMessage, emitStopTyping]);
 
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeConversation) return;
+
+    try {
+      setIsUploading(true);
+      const res = await uploadAttachment(file);
+      const attachment = res.data;
+
+      sendMessage({
+        conversationId: activeConversation._id,
+        content: '',
+        type: 'text',
+        attachments: [attachment]
+      });
+    } catch (error) {
+      console.error('Failed to upload attachment:', error);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const filteredMentions = activeConversation?.participants
+    ?.filter((p) => p._id !== user?._id && p.username.toLowerCase().includes((mentionQuery || '').toLowerCase())) || [];
+
+  const insertMention = useCallback((username) => {
+    const cursor = textareaRef.current.selectionStart;
+    const textBefore = text.slice(0, cursor);
+    const textAfter = text.slice(cursor);
+    const newTextBefore = textBefore.replace(/(?:^|\s)@\w*$/, (m) => m.replace(/@\w*$/, `@${username} `));
+    
+    setText(newTextBefore + textAfter);
+    setMentionQuery(null);
+    
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.selectionStart = newTextBefore.length;
+        textareaRef.current.selectionEnd = newTextBefore.length;
+      }
+    }, 0);
+  }, [text]);
+
   const handleKeyDown = (e) => {
+    if (mentionQuery !== null && filteredMentions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev + 1) % filteredMentions.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertMention(filteredMentions[mentionIndex].username);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setMentionQuery(null);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -143,7 +219,20 @@ const MessageInput = () => {
   };
 
   const handleChange = (e) => {
-    setText(e.target.value);
+    const val = e.target.value;
+    setText(val);
+
+    const cursor = e.target.selectionStart;
+    const textBeforeCursor = val.slice(0, cursor);
+    const match = textBeforeCursor.match(/(?:^|\s)@(\w*)$/);
+    
+    // Only show autocomplete for group chats
+    if (match && activeConversation?.type === 'group') {
+      setMentionQuery(match[1]);
+      setMentionIndex(0);
+    } else {
+      setMentionQuery(null);
+    }
 
     if (!activeConversation) return;
 
@@ -178,11 +267,13 @@ const MessageInput = () => {
       ) : (
         <div className="flex items-end gap-3">
           <div className="flex-1 relative">
-            <textarea
+              <textarea
               ref={textareaRef}
               value={text}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
+              onClick={handleChange}
+              onKeyUp={handleChange}
               placeholder="Type a message... (@ to mention)"
               rows={1}
               className="w-full bg-dark-800/80 border border-dark-700/50 text-dark-100
@@ -197,7 +288,42 @@ const MessageInput = () => {
                 e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px';
               }}
             />
+            {/* Mention Autocomplete */}
+            {mentionQuery !== null && filteredMentions.length > 0 && (
+              <div className="absolute bottom-full left-0 mb-2 w-64 bg-dark-800 border border-dark-700/60 rounded-xl shadow-xl z-50 overflow-hidden">
+                <div className="max-h-48 overflow-y-auto p-1">
+                  {filteredMentions.map((user, idx) => (
+                    <button
+                      key={user._id}
+                      onClick={() => insertMention(user.username)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm
+                        ${idx === mentionIndex ? 'bg-primary-500/20 text-primary-300' : 'hover:bg-dark-700/60 text-dark-200'}`}
+                    >
+                      <span className="font-medium text-dark-100">{user.username}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Attachment button */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept="image/*,application/pdf"
+            onChange={handleFileChange}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="p-3 rounded-xl bg-dark-800/80 border border-dark-700/50 text-dark-400
+              hover:text-primary-400 hover:border-primary-500/30 transition-all duration-200 disabled:opacity-50"
+            title="Attach file"
+          >
+            {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+          </button>
 
           {/* Emoji button */}
           <div className="relative">

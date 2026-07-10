@@ -30,8 +30,9 @@ export const register = async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+      sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/api/auth',
     });
 
     res.status(201).json({ user, accessToken });
@@ -66,8 +67,9 @@ export const login = async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+      sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/api/auth',
     });
 
     res.json({ user, accessToken });
@@ -102,8 +104,9 @@ export const refreshAccessToken = async (req, res) => {
     res.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+      sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/api/auth',
     });
 
     res.json({ accessToken });
@@ -125,7 +128,8 @@ export const logout = async (req, res) => {
     res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+      sameSite: 'strict',
+      path: '/api/auth',
     });
     res.json({ message: 'Logged out successfully' });
   } catch (error) {

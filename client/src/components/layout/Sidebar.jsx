@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   MessageSquare,
@@ -11,6 +11,9 @@ import {
   Hash,
   User,
   AtSign,
+  AlertCircle,
+  X,
+  CheckCheck,
 } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useChat from '../../hooks/useChat';
@@ -26,8 +29,8 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
-  const { conversations, activeConversation, selectConversation, createConversation, fetchConversations } = useChat();
-  const { isOnline, notifications } = useSocket();
+  const { conversations, activeConversation, selectConversation, createConversation, fetchConversations, setConversations, lastError, clearError } = useChat();
+  const { isOnline, notifications, markConversationRead } = useSocket();
 
   const [showNewChat, setShowNewChat] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -39,6 +42,17 @@ const Sidebar = () => {
   const [groupDesc, setGroupDesc] = useState('');
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [sidebarFilter, setSidebarFilter] = useState('');
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        document.getElementById('sidebar-search-input')?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleSearchUsers = async (q) => {
     setSearchQuery(q);
@@ -130,6 +144,17 @@ const Sidebar = () => {
     navigate('/');
   };
 
+  const handleMarkAllAsRead = () => {
+    conversations.forEach(conv => {
+      if (conv.unreadCount > 0) {
+        if (markConversationRead) markConversationRead(conv._id);
+      }
+    });
+    setConversations(prev => prev.map(c => ({ ...c, unreadCount: 0 })));
+  };
+
+  const totalUnread = conversations.reduce((acc, conv) => acc + (conv.unreadCount || 0), 0);
+
   return (
     <>
       <aside className="w-80 h-screen flex flex-col glass border-r border-dark-700/50">
@@ -155,18 +180,44 @@ const Sidebar = () => {
           </div>
 
           {/* Sidebar filter */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500" size={16} />
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              value={sidebarFilter}
-              onChange={(e) => setSidebarFilter(e.target.value)}
-              className="w-full bg-dark-800/80 border border-dark-700/50 text-dark-200 pl-9 pr-3 py-2 rounded-lg text-sm
-                placeholder:text-dark-500 focus:outline-none focus:ring-1 focus:ring-primary-500/50 transition-all"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500" size={16} />
+              <input
+                id="sidebar-search-input"
+                type="text"
+                placeholder="Search... (Cmd+K)"
+                value={sidebarFilter}
+                onChange={(e) => setSidebarFilter(e.target.value)}
+                className="w-full bg-dark-800/80 border border-dark-700/50 text-dark-200 pl-9 pr-3 py-2 rounded-lg text-sm
+                  placeholder:text-dark-500 focus:outline-none focus:ring-1 focus:ring-primary-500/50 transition-all"
+              />
+            </div>
+            {totalUnread > 0 && (
+              <button
+                onClick={handleMarkAllAsRead}
+                className="p-2 bg-dark-800/80 border border-dark-700/50 rounded-lg text-dark-400 hover:text-primary-400 transition-colors"
+                title="Mark all as read"
+              >
+                <CheckCheck size={16} />
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Error Toast */}
+        {lastError && (
+          <div className="mx-4 mt-3 mb-1 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-2.5 shadow-sm">
+            <AlertCircle size={16} className="text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-red-200 flex-1">{lastError}</p>
+            <button 
+              onClick={clearError}
+              className="text-red-400 hover:text-red-300 hover:bg-red-500/20 p-1 rounded transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Mentions & Notifications */}
         <div className="px-4 py-2 border-b border-dark-700/30">
@@ -252,9 +303,16 @@ const Sidebar = () => {
                       <p className={`text-sm font-medium truncate ${isActive ? 'text-primary-300' : 'text-dark-200'}`}>
                         {name}
                       </p>
-                      <span className="text-[11px] text-dark-500 ml-2 flex-shrink-0">
-                        {formatDate(conv.updatedAt)}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 ml-2 flex-shrink-0">
+                        <span className="text-[11px] text-dark-500">
+                          {formatDate(conv.updatedAt)}
+                        </span>
+                        {conv.unreadCount > 0 && (
+                          <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center shadow-sm">
+                            {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {conv.type === 'group' && (
                       <p className="text-xs text-dark-500 truncate mt-0.5">

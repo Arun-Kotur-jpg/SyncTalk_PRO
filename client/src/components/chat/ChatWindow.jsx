@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Hash, Users, Search, Sparkles, ChevronLeft, UserPlus, Info } from 'lucide-react';
+import { Hash, Users, Search, Sparkles, ChevronLeft, UserPlus, Info, Bell, BellOff, ArrowDown } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import useChat from '../../hooks/useChat';
 import useSocket from '../../hooks/useSocket';
@@ -12,8 +12,9 @@ import SummaryPanel from '../summary/SummaryPanel';
 import Avatar from '../common/Avatar';
 import Loader from '../common/Loader';
 import Modal from '../common/Modal';
-import { addMember, removeMember } from '../../api/conversations';
+import { addMember, removeMember, toggleMute } from '../../api/conversations';
 import { getUsers } from '../../api/users';
+import { formatDate } from '../../utils/formatDate';
 
 const ChatWindow = () => {
   const { user } = useAuth();
@@ -26,6 +27,10 @@ const ChatWindow = () => {
     pagination,
     updateMessageTranscription,
     fetchConversations,
+    highlightMessageId,
+    setHighlightMessageId,
+    updateMessage,
+    removeMessage,
   } = useChat();
   const { socket, joinRoom, leaveRoom, isOnline } = useSocket();
   const navigate = useNavigate();
@@ -39,6 +44,9 @@ const ChatWindow = () => {
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const [memberResults, setMemberResults] = useState([]);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const prevMessagesLength = useRef(0);
 
   // Join/leave room on conversation change
   useEffect(() => {
@@ -57,6 +65,18 @@ const ChatWindow = () => {
       }
     };
 
+    const handleMessageEdited = (message) => {
+      if (message.conversation === activeConversation?._id) {
+        updateMessage(message);
+      }
+    };
+
+    const handleMessageDeleted = ({ messageId, conversationId }) => {
+      if (conversationId === activeConversation?._id) {
+        removeMessage(messageId);
+      }
+    };
+
     const handleTyping = ({ userId, username, conversationId }) => {
       if (conversationId !== activeConversation?._id) return;
       if (userId === user?._id) return;
@@ -71,15 +91,19 @@ const ChatWindow = () => {
     };
 
     socket.on('new_message', handleNewMessage);
+    socket.on('message_edited', handleMessageEdited);
+    socket.on('message_deleted', handleMessageDeleted);
     socket.on('user_typing', handleTyping);
     socket.on('user_stop_typing', handleStopTyping);
 
     return () => {
       socket.off('new_message', handleNewMessage);
+      socket.off('message_edited', handleMessageEdited);
+      socket.off('message_deleted', handleMessageDeleted);
       socket.off('user_typing', handleTyping);
       socket.off('user_stop_typing', handleStopTyping);
     };
-  }, [socket, activeConversation?._id, addMessage, user?._id]);
+  }, [socket, activeConversation?._id, addMessage, updateMessage, removeMessage, user?._id]);
 
   // Clear typing indicators after timeout
   useEffect(() => {
@@ -87,8 +111,6 @@ const ChatWindow = () => {
     const timer = setTimeout(() => setTypingUsers([]), 3000);
     return () => clearTimeout(timer);
   }, [typingUsers]);
-
-  const { highlightMessageId, setHighlightMessageId } = useChat();
 
   // Handle Highlight Message Auto-scroll
   useEffect(() => {
@@ -105,16 +127,36 @@ const ChatWindow = () => {
 
   // Auto-scroll to bottom on new messages (only if no highlight)
   useEffect(() => {
-    if (!highlightMessageId) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, highlightMessageId]);
+    if (highlightMessageId) return;
 
-  // Scroll-to-top to load more
+    if (isAtBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } else if (messages.length > prevMessagesLength.current) {
+      const newMsgsCount = messages.length - prevMessagesLength.current;
+      const newMsg = messages[messages.length - 1];
+      if (newMsg?.sender?._id === user?._id) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        setIsAtBottom(true);
+      } else {
+        setUnreadCount((prev) => prev + newMsgsCount);
+      }
+    }
+    prevMessagesLength.current = messages.length;
+  }, [messages, highlightMessageId, isAtBottom, user?._id]);
+
+  // Scroll handler
   const handleScroll = () => {
     if (!messagesContainerRef.current) return;
-    if (messagesContainerRef.current.scrollTop === 0 && pagination?.page < pagination?.pages) {
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    
+    if (scrollTop === 0 && pagination?.page < pagination?.pages) {
       loadMoreMessages();
+    }
+
+    const atBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setIsAtBottom(atBottom);
+    if (atBottom) {
+      setUnreadCount(0);
     }
   };
 
@@ -146,12 +188,21 @@ const ChatWindow = () => {
     }
   };
 
-  const handleRemoveMember = async (userId) => {
+  const handleRemoveMember = async (memberId) => {
     try {
-      await removeMember(activeConversation._id, userId);
+      await removeMember(activeConversation._id, memberId);
       await fetchConversations();
     } catch (err) {
       console.error('Failed to remove member:', err);
+    }
+  };
+
+  const handleToggleMute = async () => {
+    try {
+      await toggleMute(activeConversation._id);
+      await fetchConversations(); // Re-fetch to update activeConversation.mutedBy
+    } catch (err) {
+      console.error('Failed to toggle mute:', err);
     }
   };
 
@@ -208,6 +259,8 @@ const ChatWindow = () => {
                 ? `${activeConversation.participants?.length} members`
                 : otherUser && isOnline(otherUser._id)
                 ? 'Online'
+                : otherUser?.lastSeen
+                ? `Last seen: ${formatDate(otherUser.lastSeen)}`
                 : 'Offline'}
             </p>
           </div>
@@ -220,6 +273,14 @@ const ChatWindow = () => {
             title="Search messages"
           >
             <Search size={18} />
+          </button>
+          
+          <button
+            onClick={handleToggleMute}
+            className="p-2 rounded-lg transition-colors text-dark-400 hover:bg-dark-700/60 hover:text-dark-200"
+            title={activeConversation.mutedBy?.includes(user?._id) ? "Unmute Notifications" : "Mute Notifications"}
+          >
+            {activeConversation.mutedBy?.includes(user?._id) ? <BellOff size={18} /> : <Bell size={18} />}
           </button>
 
           {isGroup && (
@@ -245,7 +306,7 @@ const ChatWindow = () => {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Messages area */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col relative">
           {showSearch && (
             <SearchMessages
               conversationId={activeConversation._id}
@@ -287,6 +348,21 @@ const ChatWindow = () => {
             <TypingIndicator users={typingUsers} />
             <div ref={messagesEndRef} />
           </div>
+
+          {!isAtBottom && (
+            <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20">
+              <button
+                onClick={() => {
+                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  setUnreadCount(0);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-dark-800 text-primary-400 text-sm font-medium rounded-full shadow-lg border border-dark-700/50 hover:bg-dark-700 transition-colors"
+              >
+                <ArrowDown size={16} />
+                {unreadCount > 0 ? `${unreadCount} New Message${unreadCount > 1 ? 's' : ''}` : 'Scroll to Bottom'}
+              </button>
+            </div>
+          )}
 
           <MessageInput />
         </div>
@@ -344,6 +420,17 @@ const ChatWindow = () => {
                         Remove
                       </button>
                     )}
+                  {member._id === user?._id && (
+                    <button
+                      onClick={async () => {
+                        await handleRemoveMember(user._id);
+                        navigate('/dashboard');
+                      }}
+                      className="text-xs text-red-500/80 hover:text-red-400 font-medium transition-colors"
+                    >
+                      Leave
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

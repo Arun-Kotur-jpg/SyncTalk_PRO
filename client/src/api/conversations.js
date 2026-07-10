@@ -13,3 +13,9 @@ export const addMember = (conversationId, userId) =>
 
 export const removeMember = (conversationId, userId) =>
   api.delete(`/conversations/${conversationId}/members/${userId}`);
+
+export const markConversationRead = (conversationId) =>
+  api.post(`/conversations/${conversationId}/read`);
+
+export const toggleMute = (conversationId) =>
+  api.post(`/conversations/${conversationId}/mute`);
