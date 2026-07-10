@@ -9,6 +9,7 @@ import AppLayout from './components/layout/AppLayout';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import Changelog from './pages/Changelog';
@@ -53,6 +54,7 @@ const AppRoutes = () => {
       <Route path="/" element={<PublicRoute><Landing /></PublicRoute>} />
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+      <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
       <Route path="/changelog" element={<PublicRoute><Changelog /></PublicRoute>} />
       
       {/* Protected Routes nested in Layout */}

@@ -232,8 +232,11 @@ const ChatWindow = () => {
       <div className="flex items-center justify-between px-6 py-3.5 glass border-b border-dark-700/50">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/dashboard')}
-            className="lg:hidden p-1.5 rounded-lg hover:bg-dark-700 text-dark-400"
+            onClick={() => {
+              selectConversation(null);
+              navigate('/dashboard');
+            }}
+            className="md:hidden p-1.5 rounded-lg hover:bg-dark-700 text-dark-400"
           >
             <ChevronLeft size={20} />
           </button>

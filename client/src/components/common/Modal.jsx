@@ -14,7 +14,7 @@ const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }) => {
       {/* Modal */}
       <div
         className={`relative ${maxWidth} w-full glass rounded-2xl shadow-2xl
-          shadow-black/30 animate-slide-up`}
+          shadow-black/30 animate-slide-up max-h-[90vh] flex flex-col`}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-dark-700/50">
@@ -28,7 +28,7 @@ const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }) => {
         </div>
 
         {/* Body */}
-        <div className="p-5">{children}</div>
+        <div className="p-5 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>
   );

@@ -58,14 +58,19 @@ const Login = () => {
             required
           />
 
-          <Input
-            icon={Lock}
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <div className="flex flex-col space-y-1">
+            <Input
+              icon={Lock}
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <Link to="/forgot-password" className="text-xs text-primary-400 hover:text-primary-300 self-end transition-colors">
+              Forgot Password?
+            </Link>
+          </div>
 
           <Button type="submit" className="w-full mt-2" loading={loading}>
             Sign In

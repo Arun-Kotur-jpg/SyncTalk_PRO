@@ -1,5 +1,5 @@
 import { createContext, useState, useEffect, useCallback, useRef } from 'react';
-import { loginUser, registerUser, logoutUser, refreshToken } from '../api/auth';
+import { loginUser, registerUser, logoutUser, refreshToken, verifyEmail as verifyEmailApi } from '../api/auth';
 import { getMe } from '../api/users';
 
 export const AuthContext = createContext(null);
@@ -42,9 +42,13 @@ export const AuthProvider = ({ children }) => {
       setUser(data.user);
       return data;
     } catch (err) {
-      const message = err.response?.data?.message || 'Login failed';
+      let message = err.response?.data?.message || 'Login failed';
+      if (err.response?.data?.errors?.length > 0) {
+        message = err.response.data.errors[0].message;
+      }
+      const unverified = err.response?.data?.unverified;
       setError(message);
-      throw new Error(message);
+      throw { message, unverified, email };
     }
   }, []);
 
@@ -52,11 +56,26 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const { data } = await registerUser({ username, email, password });
+      return data;
+    } catch (err) {
+      let message = err.response?.data?.message || 'Registration failed';
+      if (err.response?.data?.errors?.length > 0) {
+        message = err.response.data.errors[0].message;
+      }
+      setError(message);
+      throw new Error(message);
+    }
+  }, []);
+
+  const verifyOtp = useCallback(async (email, otp) => {
+    setError(null);
+    try {
+      const { data } = await verifyEmailApi({ email, otp });
       setAccessToken(data.accessToken);
       setUser(data.user);
       return data;
     } catch (err) {
-      const message = err.response?.data?.message || 'Registration failed';
+      const message = err.response?.data?.message || 'Verification failed';
       setError(message);
       throw new Error(message);
     }
@@ -79,7 +98,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, error, login, register, logout, updateUser, setError }}
+      value={{ user, loading, error, login, register, verifyOtp, logout, updateUser, setError }}
     >
       {children}
     </AuthContext.Provider>

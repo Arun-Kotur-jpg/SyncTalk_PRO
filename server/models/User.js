@@ -40,6 +40,18 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    otp: {
+      type: String,
+      default: null,
+    },
+    otpExpiry: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
@@ -61,6 +73,7 @@ userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
   delete obj.refreshToken;
+  delete obj.otp;
   return obj;
 };
 

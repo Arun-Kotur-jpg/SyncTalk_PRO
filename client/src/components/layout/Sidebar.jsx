@@ -157,7 +157,7 @@ const Sidebar = () => {
 
   return (
     <>
-      <aside className="w-80 h-screen flex flex-col glass border-r border-dark-700/50">
+      <aside className="w-full md:w-80 h-screen flex flex-col glass border-r border-dark-700/50">
         {/* User header */}
         <div className="p-4 border-b border-dark-700/50">
           <div className="flex items-center justify-between mb-4">

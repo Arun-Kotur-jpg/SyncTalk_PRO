@@ -318,7 +318,7 @@ const MessageInput = () => {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="p-3 rounded-xl bg-dark-800/80 border border-dark-700/50 text-dark-400
+            className="p-2 sm:p-3 rounded-xl bg-dark-800/80 border border-dark-700/50 text-dark-400
               hover:text-primary-400 hover:border-primary-500/30 transition-all duration-200 disabled:opacity-50"
             title="Attach file"
           >
@@ -329,7 +329,7 @@ const MessageInput = () => {
           <div className="relative">
             <button
               onClick={() => setShowEmojiPicker((prev) => !prev)}
-              className={`p-3 rounded-xl border transition-all duration-200
+              className={`p-2 sm:p-3 rounded-xl border transition-all duration-200
                 ${showEmojiPicker
                   ? 'bg-primary-500/10 border-primary-500/30 text-primary-400'
                   : 'bg-dark-800/80 border-dark-700/50 text-dark-400 hover:text-primary-400 hover:border-primary-500/30'
@@ -350,7 +350,7 @@ const MessageInput = () => {
           {/* Voice button */}
           <button
             onClick={() => setShowRecorder(true)}
-            className="p-3 rounded-xl bg-dark-800/80 border border-dark-700/50 text-dark-400
+            className="p-2 sm:p-3 rounded-xl bg-dark-800/80 border border-dark-700/50 text-dark-400
               hover:text-primary-400 hover:border-primary-500/30 transition-all duration-200"
             title="Record voice"
           >
@@ -361,7 +361,7 @@ const MessageInput = () => {
           <button
             onClick={handleSend}
             disabled={!text.trim()}
-            className="p-3 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white
+            className="p-2 sm:p-3 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white
               hover:from-primary-500 hover:to-primary-400 disabled:opacity-40 disabled:cursor-not-allowed
               transition-all duration-200 shadow-lg shadow-primary-600/20"
             title="Send"
