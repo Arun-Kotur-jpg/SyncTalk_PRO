@@ -80,6 +80,7 @@ const MessageInput = () => {
   const [showRecorder, setShowRecorder] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState(null);
   const [mentionQuery, setMentionQuery] = useState(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const typingTimeout = useRef(null);
@@ -131,19 +132,21 @@ const MessageInput = () => {
 
     // If there's no text left (and it's a text message), we shouldn't send it unless it's just a poke/ping?
     // Actually, sending an empty message with mentions is fine for a "ping" but let's allow it if there are mentions.
-    if (!finalContent && mentions.length === 0) return;
+    if (!finalContent && mentions.length === 0 && !pendingAttachment) return;
 
     sendMessage({
       conversationId: activeConversation._id,
       content: finalContent,
       type: 'text',
       mentions,
+      attachments: pendingAttachment ? [pendingAttachment] : undefined,
     });
 
     setText('');
+    setPendingAttachment(null);
     setShowEmojiPicker(false);
     emitStopTyping(activeConversation._id);
-  }, [text, activeConversation, sendMessage, emitStopTyping]);
+  }, [text, activeConversation, sendMessage, emitStopTyping, pendingAttachment]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -153,13 +156,7 @@ const MessageInput = () => {
       setIsUploading(true);
       const res = await uploadAttachment(file);
       const attachment = res.data;
-
-      sendMessage({
-        conversationId: activeConversation._id,
-        content: '',
-        type: 'text',
-        attachments: [attachment]
-      });
+      setPendingAttachment(attachment);
     } catch (error) {
       console.error('Failed to upload attachment:', error);
     } finally {
@@ -267,6 +264,29 @@ const MessageInput = () => {
       ) : (
         <div className="flex items-end gap-3">
           <div className="flex-1 relative">
+            {/* Pending Attachment Preview */}
+            {pendingAttachment && (
+              <div className="absolute bottom-full left-0 mb-2 p-2 bg-dark-800/90 border border-dark-700/60 rounded-xl flex items-center gap-3">
+                {pendingAttachment.fileType === 'image' ? (
+                  <img src={pendingAttachment.url} alt="preview" className="h-12 w-12 object-cover rounded" />
+                ) : (
+                  <div className="h-12 w-12 bg-dark-700 rounded flex items-center justify-center">
+                    <span className="text-[10px] uppercase font-bold text-dark-300">FILE</span>
+                  </div>
+                )}
+                <div className="flex-1 min-w-[120px] max-w-[200px]">
+                  <p className="text-xs text-dark-100 truncate">{pendingAttachment.name}</p>
+                  <p className="text-[10px] text-dark-400">{(pendingAttachment.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+                <button
+                  onClick={() => setPendingAttachment(null)}
+                  className="p-1 rounded-full hover:bg-dark-700/60 text-dark-400 hover:text-red-400"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            
               <textarea
               ref={textareaRef}
               value={text}
@@ -360,7 +380,7 @@ const MessageInput = () => {
           {/* Send button */}
           <button
             onClick={handleSend}
-            disabled={!text.trim()}
+            disabled={(!text.trim() && !pendingAttachment)}
             className="p-2 sm:p-3 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white
               hover:from-primary-500 hover:to-primary-400 disabled:opacity-40 disabled:cursor-not-allowed
               transition-all duration-200 shadow-lg shadow-primary-600/20"
