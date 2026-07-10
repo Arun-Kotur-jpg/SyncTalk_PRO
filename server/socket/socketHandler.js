@@ -95,7 +95,7 @@ const setupSocket = (io) => {
           }
         }
 
-        const { conversationId, content, type = 'text', voiceUrl, replyTo, mentions } = data;
+        const { conversationId, content, type = 'text', voiceUrl, replyTo, mentions, attachments } = data;
 
         // Verify membership
         const conversation = await Conversation.findById(conversationId);
@@ -112,6 +112,7 @@ const setupSocket = (io) => {
           voiceUrl: voiceUrl || null,
           replyTo: replyTo || null,
           mentions: mentions || [],
+          attachments: attachments || [],
           readBy: [userId],
           delivered: true,
         });
