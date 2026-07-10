@@ -46,7 +46,10 @@ export const handleUpload = (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    const fileUrl = `${process.env.API_URL || 'http://localhost:5000'}/uploads/attachments/${req.file.filename}`;
+    // Use X-Forwarded-Proto if available (for Render/proxies), otherwise req.protocol
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const baseUrl = `${protocol}://${req.get('host')}`;
+    const fileUrl = `${baseUrl}/uploads/attachments/${req.file.filename}`;
     
     // Determine file type
     const isImage = req.file.mimetype.startsWith('image/');
