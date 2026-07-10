@@ -15,6 +15,23 @@ const createTransporter = () => {
 };
 
 export const sendEmail = async (to, subject, text, html) => {
+  // Use Google Apps Script Webhook if configured (Bypasses Render's SMTP block)
+  if (process.env.EMAIL_WEBHOOK_URL) {
+    try {
+      const response = await fetch(process.env.EMAIL_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject, html: html || text })
+      });
+      if (response.ok) return true;
+      throw new Error('Webhook failed');
+    } catch (error) {
+      console.error('Error sending email via webhook:', error);
+      throw new Error('Failed to send email via webhook');
+    }
+  }
+
+  // Fallback to standard SMTP if no webhook is provided
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.warn('\n[WARNING] SMTP credentials missing in .env. Skipping email sending.');
     console.warn(`[MOCK EMAIL to ${to}]\nSubject: ${subject}\nText: ${text}\n`);
