@@ -25,7 +25,7 @@ const envSchema = z.object({
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
   JWT_ACCESS_SECRET: z.string().min(1, 'JWT_ACCESS_SECRET is required'),
   JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
-  PORT: z.string().min(1, 'PORT is required'),
+  PORT: z.string().optional(),
   CLIENT_URL: z.string().min(1, 'CLIENT_URL is required'),
   GEMINI_API_KEY: z.string().optional(),
   JWT_ACCESS_EXPIRY: z.string().optional(),
