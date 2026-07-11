@@ -9,6 +9,9 @@ import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email.js
 // Helper to generate a 6-digit OTP
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
+// Maximum number of concurrent sessions (refresh tokens) per user
+const MAX_SESSIONS = 10;
+
 // POST /api/auth/register
 export const register = async (req, res) => {
   try {
@@ -69,7 +72,10 @@ export const verifyEmail = async (req, res) => {
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
 
-    user.refreshToken = refreshToken;
+    user.refreshTokens = [
+      ...user.refreshTokens.slice(-MAX_SESSIONS + 1),
+      { token: refreshToken, createdAt: new Date() },
+    ];
     await user.save();
 
     res.cookie('refreshToken', refreshToken, {
@@ -129,7 +135,10 @@ export const login = async (req, res) => {
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
 
-    user.refreshToken = refreshToken;
+    user.refreshTokens = [
+      ...user.refreshTokens.slice(-MAX_SESSIONS + 1),
+      { token: refreshToken, createdAt: new Date() },
+    ];
     user.lastSeen = new Date();
     await user.save();
 
@@ -159,7 +168,13 @@ export const refreshAccessToken = async (req, res) => {
     const decoded = verifyRefreshToken(token);
     const user = await User.findById(decoded.id);
 
-    if (!user || user.refreshToken !== token) {
+    if (!user) {
+      return res.status(403).json({ message: 'Invalid refresh token' });
+    }
+
+    // Find the matching session entry in the array
+    const sessionIndex = user.refreshTokens.findIndex((s) => s.token === token);
+    if (sessionIndex === -1) {
       return res.status(403).json({ message: 'Invalid refresh token' });
     }
 
@@ -167,7 +182,8 @@ export const refreshAccessToken = async (req, res) => {
     const accessToken = generateAccessToken(user._id);
     const newRefreshToken = generateRefreshToken(user._id);
 
-    user.refreshToken = newRefreshToken;
+    // Rotate: replace only the matched session entry
+    user.refreshTokens[sessionIndex] = { token: newRefreshToken, createdAt: new Date() };
     await user.save();
 
     res.cookie('refreshToken', newRefreshToken, {
@@ -189,7 +205,11 @@ export const logout = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if (user) {
-      user.refreshToken = null;
+      // Remove only the current session's token, leave other sessions intact
+      const token = req.cookies?.refreshToken;
+      if (token) {
+        user.refreshTokens = user.refreshTokens.filter((s) => s.token !== token);
+      }
       user.lastSeen = new Date();
       await user.save();
     }

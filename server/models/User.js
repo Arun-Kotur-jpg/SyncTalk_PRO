@@ -36,10 +36,10 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-    refreshToken: {
-      type: String,
-      default: null,
-    },
+    refreshTokens: [{
+      token: { type: String, required: true },
+      createdAt: { type: Date, default: Date.now },
+    }],
     isVerified: {
       type: Boolean,
       default: false,
@@ -72,7 +72,7 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
-  delete obj.refreshToken;
+  delete obj.refreshTokens;
   delete obj.otp;
   return obj;
 };

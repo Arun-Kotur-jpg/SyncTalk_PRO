@@ -17,7 +17,7 @@ export const updateProfile = async (req, res) => {
     const user = await User.findByIdAndUpdate(req.user._id, updates, {
       new: true,
       runValidators: true,
-    }).select('-password -refreshToken');
+    }).select('-password -refreshTokens');
 
     res.json(user);
   } catch (error) {

@@ -10,7 +10,7 @@ const auth = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
     const decoded = verifyAccessToken(token);
-    const user = await User.findById(decoded.id).select('-password -refreshToken');
+    const user = await User.findById(decoded.id).select('-password -refreshTokens');
 
     if (!user) {
       return res.status(401).json({ message: 'User not found' });

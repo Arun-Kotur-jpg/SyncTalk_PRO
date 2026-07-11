@@ -19,7 +19,7 @@ const setupSocket = (io) => {
       }
 
       const decoded = verifyAccessToken(token);
-      const user = await User.findById(decoded.id).select('-password -refreshToken');
+      const user = await User.findById(decoded.id).select('-password -refreshTokens');
       if (!user) {
         return next(new Error('User not found'));
       }
