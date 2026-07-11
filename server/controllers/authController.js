@@ -78,15 +78,7 @@ export const verifyEmail = async (req, res) => {
     ];
     await user.save();
 
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/api/auth',
-    });
-
-    res.json({ message: 'Email verified successfully', user, accessToken });
+    res.json({ message: 'Email verified successfully', user, accessToken, refreshToken });
   } catch (error) {
     console.error('Verify error:', error);
     res.status(500).json({ message: 'Server error during verification' });
@@ -142,15 +134,7 @@ export const login = async (req, res) => {
     user.lastSeen = new Date();
     await user.save();
 
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/api/auth',
-    });
-
-    res.json({ user, accessToken });
+    res.json({ user, accessToken, refreshToken });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: `Server error during login: ${error.message}` });
@@ -160,7 +144,7 @@ export const login = async (req, res) => {
 // POST /api/auth/refresh
 export const refreshAccessToken = async (req, res) => {
   try {
-    const token = req.cookies?.refreshToken;
+    const token = req.body?.refreshToken;
     if (!token) {
       return res.status(401).json({ message: 'Refresh token required' });
     }
@@ -186,15 +170,7 @@ export const refreshAccessToken = async (req, res) => {
     user.refreshTokens[sessionIndex] = { token: newRefreshToken, createdAt: new Date() };
     await user.save();
 
-    res.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/api/auth',
-    });
-
-    res.json({ accessToken });
+    res.json({ accessToken, refreshToken: newRefreshToken });
   } catch (error) {
     return res.status(403).json({ message: 'Invalid or expired refresh token' });
   }
@@ -206,7 +182,7 @@ export const logout = async (req, res) => {
     const user = await User.findById(req.user._id);
     if (user) {
       // Remove only the current session's token, leave other sessions intact
-      const token = req.cookies?.refreshToken;
+      const token = req.body?.refreshToken;
       if (token) {
         user.refreshTokens = user.refreshTokens.filter((s) => s.token !== token);
       }
@@ -214,12 +190,6 @@ export const logout = async (req, res) => {
       await user.save();
     }
 
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-      path: '/api/auth',
-    });
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Logout failed' });

@@ -1,7 +1,7 @@
 import { createContext, useEffect, useState, useContext, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { SOCKET_URL } from '../utils/constants';
-import { AuthContext, getAccessToken, setAccessToken } from './AuthContext';
+import { AuthContext, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken } from './AuthContext';
 import { fetchCsrfToken } from '../api/csrf';
 
 export const SocketContext = createContext(null);
@@ -68,10 +68,13 @@ export const SocketProvider = ({ children }) => {
       if (!hasAttemptedRefresh) {
         hasAttemptedRefresh = true;
         try {
+          const storedRefresh = getRefreshToken();
+          if (!storedRefresh) throw new Error('No refresh token');
           const { default: api } = await import('../api/axios');
           await fetchCsrfToken();
-          const { data } = await api.post('/auth/refresh');
+          const { data } = await api.post('/auth/refresh', { refreshToken: storedRefresh });
           setAccessToken(data.accessToken);
+          setRefreshToken(data.refreshToken);
           // Update socket auth and retry
           newSocket.auth = { token: data.accessToken };
           newSocket.connect();

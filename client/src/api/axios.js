@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { API_URL } from '../utils/constants';
-import { getAccessToken, setAccessToken } from '../context/AuthContext';
+import { getAccessToken, setAccessToken, getRefreshToken, setRefreshToken } from '../context/AuthContext';
 import { getCsrfToken, fetchCsrfToken } from './csrf';
 
 const api = axios.create({
@@ -42,14 +42,20 @@ api.interceptors.response.use(
     ) {
       originalRequest._retry = true;
       try {
+        const storedRefresh = getRefreshToken();
+        if (!storedRefresh) {
+          throw new Error('No refresh token');
+        }
         // Ensure we have a fresh CSRF token
         await fetchCsrfToken();
-        const { data } = await api.post('/auth/refresh');
+        const { data } = await api.post('/auth/refresh', { refreshToken: storedRefresh });
         setAccessToken(data.accessToken);
+        setRefreshToken(data.refreshToken);
         originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
         setAccessToken(null);
+        setRefreshToken(null);
         window.location.href = '/login';
         return Promise.reject(refreshError);
       }

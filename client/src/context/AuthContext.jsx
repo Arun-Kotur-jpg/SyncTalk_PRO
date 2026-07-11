@@ -1,5 +1,5 @@
 import { createContext, useState, useEffect, useCallback, useRef } from 'react';
-import { loginUser, registerUser, logoutUser, refreshToken, verifyEmail as verifyEmailApi } from '../api/auth';
+import { loginUser, registerUser, logoutUser, refreshToken as refreshTokenApi, verifyEmail as verifyEmailApi } from '../api/auth';
 import { getMe } from '../api/users';
 
 export const AuthContext = createContext(null);
@@ -10,22 +10,39 @@ let _accessToken = null;
 export const getAccessToken = () => _accessToken;
 export const setAccessToken = (token) => { _accessToken = token; };
 
+// Tab-scoped refresh token — stored in sessionStorage (isolated per tab)
+export const getRefreshToken = () => sessionStorage.getItem('refreshToken');
+export const setRefreshToken = (token) => {
+  if (token) {
+    sessionStorage.setItem('refreshToken', token);
+  } else {
+    sessionStorage.removeItem('refreshToken');
+  }
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // On mount, attempt a silent refresh (cookie-based) to restore the session
+  // On mount, attempt a silent refresh using the tab's sessionStorage token
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const { data } = await refreshToken();
+        const storedRefresh = getRefreshToken();
+        if (!storedRefresh) {
+          // No refresh token in this tab — stay logged out
+          return;
+        }
+        const { data } = await refreshTokenApi(storedRefresh);
         setAccessToken(data.accessToken);
+        setRefreshToken(data.refreshToken);
         const meRes = await getMe();
         setUser(meRes.data);
       } catch {
         // No valid session — stay logged out
         setAccessToken(null);
+        setRefreshToken(null);
       } finally {
         setLoading(false);
       }
@@ -39,6 +56,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const { data } = await loginUser({ email, password });
       setAccessToken(data.accessToken);
+      setRefreshToken(data.refreshToken);
       setUser(data.user);
       return data;
     } catch (err) {
@@ -72,6 +90,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const { data } = await verifyEmailApi({ email, otp });
       setAccessToken(data.accessToken);
+      setRefreshToken(data.refreshToken);
       setUser(data.user);
       return data;
     } catch (err) {
@@ -83,11 +102,12 @@ export const AuthProvider = ({ children }) => {
 
   const logout = useCallback(async () => {
     try {
-      await logoutUser();
+      await logoutUser(getRefreshToken());
     } catch {
       // Continue logout even if API call fails
     } finally {
       setAccessToken(null);
+      setRefreshToken(null);
       setUser(null);
     }
   }, []);
